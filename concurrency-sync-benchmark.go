@@ -120,22 +120,24 @@ func atomicWriter(iterations int, wg *sync.WaitGroup) {
 
 // spin workers and measure time
 
-func run(reader readerCallback, writer writerCallback, numWorkers int, iterations int) time.Duration {
+func run(reader readerCallback, writer writerCallback, numReadWorkers int, numWriteWorkers int, iterations int) time.Duration {
 	var wg sync.WaitGroup
-	wg.Add(numWorkers * 2)
+	wg.Add(numReadWorkers + numWriteWorkers)
 	startTime := time.Now()
-	for i := 0; i < numWorkers; i++ {
-		go writer(iterations, &wg)
+	for i := 0; i < numReadWorkers; i++ {
 		go reader(iterations, &wg)
+	}
+	for i := 0; i < numWriteWorkers; i++ {
+		go writer(iterations, &wg)
 	}
 	wg.Wait()
 	return time.Since(startTime)
 }
 
-func printRun(reader readerCallback, writer writerCallback, numWorkers int, numOperations int) {
-	iterations := int(numOperations / numWorkers)
-	duration := run(reader, writer, numWorkers, iterations)
-	fmt.Printf("%.0d\t\t", duration.Nanoseconds()/int64(numOperations))
+func printRun(reader readerCallback, writer writerCallback, numReadWorkers int, numWriteWorkers int, numOperations int) {
+	numOperationsPerWorker := int(numOperations / (numReadWorkers + numWriteWorkers))
+	duration := run(reader, writer, numReadWorkers, numWriteWorkers, numOperationsPerWorker)
+	fmt.Printf("%d\t\t", duration.Nanoseconds()/int64(numOperations))
 }
 
 // main
@@ -160,7 +162,7 @@ func main() {
 	ch = make(chan int64)
 	buffCh = make(chan int64, numOperations)
 
-	fmt.Println("Workers\t\tMutex(ns)\tRWMutex(ns)\tChannels(ns)\tBuffChannels\tAtomic(ns)")
+	fmt.Println("Workers\t\tMutex(ns)\tRWMutex(ns)\tROMutex(ns)\tWOMutext(ns)\tChannels(ns)\tBuffChannels\tAtomic(ns)\tROAtomic(ns)\tWOAtomic(ns)")
 
 	for numWorkers := 1; numWorkers < maxWorkers; numWorkers++ {
 		if numOperations%numWorkers != 0 {
@@ -169,11 +171,15 @@ func main() {
 		val = 0
 		atomicVal.Store(0)
 		fmt.Print(numWorkers, "\t\t")
-		printRun(mutexReader, mutexWriter, numWorkers, numOperations)
-		printRun(rwMutexReader, rwMutexWriter, numWorkers, numOperations)
-		printRun(chanReader, chanWriter, numWorkers, numOperations)
-		printRun(buffChanReader, buffChanWriter, numWorkers, numOperations)
-		printRun(atomicReader, atomicWriter, numWorkers, numOperations)
+		printRun(mutexReader, mutexWriter, numWorkers, numWorkers, numOperations)
+		printRun(rwMutexReader, rwMutexWriter, numWorkers, numWorkers, numOperations)
+		printRun(rwMutexReader, rwMutexWriter, numWorkers, 0, numOperations*2)
+		printRun(rwMutexReader, rwMutexWriter, 0, numWorkers, numOperations*2)
+		printRun(chanReader, chanWriter, numWorkers, numWorkers, numOperations)
+		printRun(buffChanReader, buffChanWriter, numWorkers, numWorkers, numOperations)
+		printRun(atomicReader, atomicWriter, numWorkers, numWorkers, numOperations)
+		printRun(atomicReader, atomicWriter, numWorkers, 0, numOperations*2)
+		printRun(atomicReader, atomicWriter, 0, numWorkers, numOperations*2)
 		fmt.Println(" ")
 	}
 
